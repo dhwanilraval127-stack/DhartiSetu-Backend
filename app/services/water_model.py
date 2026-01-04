@@ -3,21 +3,27 @@ import joblib
 import numpy as np
 
 # --------------------------------------------------
-# Absolute path to model (SAFE on Windows)
+# Absolute path to model (works locally & on Render)
 # --------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[2]  # backend/
 MODEL_PATH = BASE_DIR / "ml_models" / "water" / "water_rf.pkl"
 
 # --------------------------------------------------
-# Load model
+# Safe model loading (DO NOT CRASH SERVER)
 # --------------------------------------------------
-if not MODEL_PATH.exists():
-    raise FileNotFoundError(f"Water model not found at: {MODEL_PATH}")
+model = None
 
-model = joblib.load(MODEL_PATH)
+if MODEL_PATH.exists():
+    try:
+        model = joblib.load(MODEL_PATH)
+        print(f"[INFO] Water model loaded from {MODEL_PATH}")
+    except Exception as e:
+        print(f"[ERROR] Failed to load water model: {e}")
+else:
+    print(f"[WARN] Water model not found at {MODEL_PATH}. API will run without it.")
 
 # --------------------------------------------------
-# Feature preparation (MATCH TRAINING ORDER)
+# Feature preparation (MUST match training order)
 # --------------------------------------------------
 def prepare_features(request):
     """
@@ -25,22 +31,24 @@ def prepare_features(request):
     MUST match training column order
     """
 
-    # IMPORTANT:
-    # Replace this order ONLY if your training CSV order is different
     features = np.array([[
+
+        # numerical
         request.temperature,
         request.humidity,
         request.area_hectares,
 
-        # categorical encodings (example – adjust if needed)
+        # crop (one-hot)
         1 if request.crop.lower() == "rice" else 0,
         1 if request.crop.lower() == "wheat" else 0,
         1 if request.crop.lower() == "maize" else 0,
 
+        # soil type (one-hot)
         1 if request.soil_type.lower() == "loamy" else 0,
         1 if request.soil_type.lower() == "sandy" else 0,
         1 if request.soil_type.lower() == "clay" else 0,
 
+        # growth stage (one-hot)
         1 if request.growth_stage.lower() == "seedling" else 0,
         1 if request.growth_stage.lower() == "vegetative" else 0,
         1 if request.growth_stage.lower() == "flowering" else 0,
@@ -48,3 +56,18 @@ def prepare_features(request):
     ]])
 
     return features
+
+# --------------------------------------------------
+# Prediction wrapper (SAFE)
+# --------------------------------------------------
+def predict_water_requirement(features):
+    """
+    Returns prediction or clean error if model not loaded
+    """
+    if model is None:
+        return {
+            "error": "Water model is not available on this server"
+        }
+
+    prediction = model.predict(features)
+    return prediction.tolist()
