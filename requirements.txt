@@ -33,6 +33,7 @@ tensorflow-cpu
 torch
 torchvision
 xgboost
+huggingface-hub==0.20.3
 
 # ===============================
 # Image
