@@ -1,0 +1,66 @@
+# ===============================
+# Core Backend
+# ===============================
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# ===============================
+# Configuration & Validation
+# ===============================
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# ===============================
+# Security & Auth
+# ===============================
+python-jose[cryptography]==3.3.0
+
+# ===============================
+# Data & ML (CPU ONLY – Optimized)
+# ===============================
+numpy==1.24.3
+pandas==2.0.3
+scikit-learn==1.3.2
+joblib==1.3.2
+xgboost==1.7.6
+
+# ===============================
+# TensorFlow (CPU)
+# ===============================
+tensorflow-cpu==2.13.0
+tensorflow-hub==0.14.0
+keras==2.13.1
+
+# ===============================
+# PyTorch (CPU)
+# ===============================
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.0.1+cpu
+torchvision==0.15.2+cpu
+
+# ===============================
+# Image & Vision
+# ===============================
+Pillow==10.0.0
+opencv-python-headless==4.8.1.78
+
+# ===============================
+# AI / LLM
+# ===============================
+google-generativeai==0.3.0
+
+# ===============================
+# HTTP, Async & Files
+# ===============================
+httpx==0.25.2
+aiohttp==3.9.1
+aiofiles==23.2.1
+requests==2.31.0
+
+# ===============================
+# Geo & Utilities
+# ===============================
+geopy==2.4.1
+psutil==5.9.6
