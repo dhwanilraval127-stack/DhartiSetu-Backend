@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 async def predict_co2(request: CO2Request):
     try:
         # SAFE language handling
-        lang = request.language.value if hasattr(request.language, "value") else request.language
+        lang = request.language.value if hasattr(request.language, "value") else "en"
+
 
         model_data = model_loader.get_all("co2")
 

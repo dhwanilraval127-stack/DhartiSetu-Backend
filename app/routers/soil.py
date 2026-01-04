@@ -1,3 +1,6 @@
+"""
+Soil Type Detection Router - FINAL (RENDER SAFE)
+"""
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 import numpy as np
 import logging
@@ -40,89 +43,16 @@ SOIL_NAMES_HI = {
 }
 
 # ==================================================
-# Crop translations
-# ==================================================
-CROP_NAMES_HI = {
-    "Rice": "चावल",
-    "Wheat": "गेहूं",
-    "Sugarcane": "गन्ना",
-    "Maize": "मक्का",
-    "Cotton": "कपास",
-    "Soybean": "सोयाबीन",
-    "Groundnut": "मूंगफली",
-    "Millets": "बाजरा",
-    "Barley": "जौ",
-    "Lentils": "दालें",
-    "Gram": "चना",
-    "Tea": "चाय",
-    "Coffee": "कॉफी",
-    "Cashew": "काजू",
-    "Rubber": "रबर",
-    "Vegetables": "सब्ज़ियाँ",
-    "Fruits": "फल",
-    "Potato": "आलू",
-    "Carrot": "गाजर",
-    "Onion": "प्याज़",
-    "Tomato": "टमाटर",
-    "Peanut": "मूंगफली",
-    "Chilli": "मिर्च",
-    "Melons": "खरबूजे",
-    "Watermelon": "तरबूज",
-    "Oilseeds": "तिलहन",
-    "Paddy": "धान",
-    "Pulses": "दलहन",
-    "Sorghum": "ज्वार",
-    "Cucumber": "खीरा"
-}
-
-# ==================================================
-# Soil → Crop knowledge base
+# SOIL → CROP KNOWLEDGE
 # ==================================================
 SOIL_CROP_RECOMMENDATIONS = {
-    "Alluvial soil": {
-        "primary": ["Rice", "Wheat"],
-        "secondary": ["Sugarcane", "Maize", "Pulses"]
-    },
-    "Black Soil": {
-        "primary": ["Cotton", "Soybean"],
-        "secondary": ["Groundnut", "Sorghum"]
-    },
-    "Cinder Soil": {
-        "primary": ["Millets"],
-        "secondary": ["Barley"]
-    },
-    "Clayey soils": {
-        "primary": ["Rice"],
-        "secondary": ["Lentils", "Gram"]
-    },
-    "Laterite soil": {
-        "primary": ["Tea", "Coffee"],
-        "secondary": ["Cashew", "Rubber"]
-    },
-    "Loamy soil": {
-        "primary": ["Vegetables", "Wheat"],
-        "secondary": ["Fruits", "Pulses"]
-    },
-    "Peat Soil": {
-        "primary": ["Potato"],
-        "secondary": ["Carrot", "Onion"]
-    },
-    "Sandy loam": {
-        "primary": ["Tomato", "Peanut"],
-        "secondary": ["Chilli", "Melons"]
-    },
-    "Sandy soil": {
-        "primary": ["Watermelon"],
-        "secondary": ["Millets", "Cucumber"]
-    },
-    "Yellow Soil": {
-        "primary": ["Paddy"],
-        "secondary": ["Oilseeds", "Maize"]
-    }
+    "Alluvial soil": {"primary": ["Rice", "Wheat"], "secondary": ["Sugarcane", "Maize"]},
+    "Black Soil": {"primary": ["Cotton", "Soybean"], "secondary": ["Groundnut"]},
+    "Sandy soil": {"primary": ["Watermelon"], "secondary": ["Millets"]},
 }
 
 # ==================================================
-# SOIL DETECTION ENDPOINT
+# DETECTION ENDPOINT
 # ==================================================
 @router.post("/detect", response_model=ImageUploadResponse)
 async def detect_soil_type(
@@ -130,7 +60,9 @@ async def detect_soil_type(
     language: Language = Form(Language.EN)
 ):
     try:
-        # ---------- Validate file ----------
+        lang = language.value if hasattr(language, "value") else language
+
+        # ---------- Validate image ----------
         if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
             raise HTTPException(400, "Invalid image type")
 
@@ -142,10 +74,16 @@ async def detect_soil_type(
         if not is_valid:
             raise HTTPException(400, msg)
 
-        # ---------- Load model ----------
+        # ---------- Load model (render-safe) ----------
         model = model_loader.get_model("soil_cnn", "model")
-        if model is None:
-            raise HTTPException(503, "Soil model not loaded")
+        if not model:
+            return ImageUploadResponse(
+                success=False,
+                prediction={},
+                confidence=0.0,
+                explanation={"error": "Soil model unavailable"},
+                language=language
+            )
 
         # ---------- Preprocess ----------
         img = image_processor.load_and_preprocess(
@@ -162,68 +100,29 @@ async def detect_soil_type(
         soil_hi = SOIL_NAMES_HI.get(soil_en, soil_en)
 
         crop_data = SOIL_CROP_RECOMMENDATIONS.get(soil_en, {})
-        primary_en = crop_data.get("primary", [])
-        secondary_en = crop_data.get("secondary", [])
+        primary = crop_data.get("primary", [])
+        secondary = crop_data.get("secondary", [])
 
-        primary_hi = [CROP_NAMES_HI.get(c, c) for c in primary_en]
-        secondary_hi = [CROP_NAMES_HI.get(c, c) for c in secondary_en]
-
-        # ---------- Explanation ----------
-        explanation = {
-            "why": (
-                f"The soil was identified as {soil_en} using visual patterns "
-                f"such as texture, color, and granularity learned by the AI model."
-            ),
-            "factors": [
-                "Soil color",
-                "Surface texture",
-                "Granularity",
-                "Light reflection"
-            ],
-            "prevention": [
-                "Avoid over-irrigation",
-                "Prevent soil erosion",
-                "Maintain organic matter"
-            ],
-            "next_steps": [
-                f"Primary crops: {', '.join(primary_en)}",
-                f"Secondary crops: {', '.join(secondary_en)}",
-                "Conduct soil nutrient testing before sowing"
-            ]
-        }
-
-        # ---------- Response ----------
         return ImageUploadResponse(
             success=True,
             prediction={
                 "soil_en": soil_en,
                 "soil_hi": soil_hi,
-                "selected": soil_hi if language == Language.HI else soil_en,
+                "selected": soil_hi if lang == "hi" else soil_en,
                 "recommended_crops": {
-                    "primary": {
-                        "en": primary_en,
-                        "hi": primary_hi
-                    },
-                    "secondary": {
-                        "en": secondary_en,
-                        "hi": secondary_hi
-                    }
+                    "primary": primary,
+                    "secondary": secondary
                 }
             },
             confidence=round(confidence * 100, 2),
-            all_predictions=[
-                {
-                    "label": SOIL_CLASSES[i],
-                    "confidence": round(float(preds[i]) * 100, 2)
-                }
-                for i in range(len(SOIL_CLASSES))
-            ],
-            explanation=explanation,
+            explanation={
+                "why": f"Soil identified as {soil_en} using CNN visual patterns."
+            },
             language=language
         )
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.error("Soil detection error", exc_info=True)
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, "Soil detection failed")

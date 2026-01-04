@@ -1,5 +1,5 @@
 """
-NDVI (Normalized Difference Vegetation Index) Router
+NDVI (Normalized Difference Vegetation Index) Router - FIXED
 """
 from fastapi import APIRouter, HTTPException
 import numpy as np
@@ -12,48 +12,71 @@ from app.services.explainer import explainer
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# =========================================================
+# NDVI ANALYSIS
+# =========================================================
 @router.post("/analyze", response_model=PredictionResponse)
 async def analyze_ndvi(request: NDVIRequest):
-    """Analyze vegetation health using NDVI"""
     try:
-        # Calculate NDVI
+        # -------------------------------------------------
+        # LANGUAGE SAFE HANDLING
+        # -------------------------------------------------
+        lang = request.language.value if hasattr(request.language, "value") else "en"
+
+        # -------------------------------------------------
+        # NDVI CALCULATION
+        # -------------------------------------------------
         if request.nir_band + request.red_band == 0:
-            ndvi = 0
+            ndvi = 0.0
         else:
-            ndvi = (request.nir_band - request.red_band) / (request.nir_band + request.red_band)
-        
+            ndvi = (request.nir_band - request.red_band) / (
+                request.nir_band + request.red_band
+            )
+
+        # -------------------------------------------------
+        # MODEL / FALLBACK
+        # -------------------------------------------------
         model_data = model_loader.get_all("ndvi")
-        
+
         if model_data and "model" in model_data:
-            model = model_data["model"]
-            
-            # Prepare features for additional analysis
-            features = np.array([[
-                ndvi, request.temperature, request.rainfall
-            ]])
-            
-            # Predict vegetation health score
-            health_score = float(model.predict(features)[0])
+            try:
+                model = model_data["model"]
+                features = np.array([[ndvi, request.temperature, request.rainfall]])
+                health_score = float(model.predict(features)[0])
+            except Exception as e:
+                logger.warning(f"NDVI model failed, using fallback: {e}")
+                health_score = calculate_health_score_fallback(ndvi, request)
         else:
-            # Fallback calculation
             health_score = calculate_health_score_fallback(ndvi, request)
-        
-        # Determine vegetation status
+
+        # -------------------------------------------------
+        # VEGETATION STATUS
+        # -------------------------------------------------
         if ndvi >= 0.6:
             status = "high"
-            status_label = "Dense Healthy Vegetation" if request.language.value == "en" else "घनी स्वस्थ वनस्पति"
+            status_label = (
+                "Dense Healthy Vegetation" if lang == "en" else "घनी स्वस्थ वनस्पति"
+            )
         elif ndvi >= 0.3:
             status = "moderate"
-            status_label = "Moderate Vegetation" if request.language.value == "en" else "मध्यम वनस्पति"
+            status_label = (
+                "Moderate Vegetation" if lang == "en" else "मध्यम वनस्पति"
+            )
         elif ndvi >= 0.1:
             status = "low"
-            status_label = "Sparse Vegetation" if request.language.value == "en" else "विरल वनस्पति"
+            status_label = (
+                "Sparse Vegetation" if lang == "en" else "विरल वनस्पति"
+            )
         else:
             status = "very_low"
-            status_label = "Bare Soil / No Vegetation" if request.language.value == "en" else "नंगी मिट्टी / कोई वनस्पति नहीं"
-        
+            status_label = (
+                "Bare Soil / No Vegetation"
+                if lang == "en"
+                else "नंगी मिट्टी / कोई वनस्पति नहीं"
+            )
+
         explanation = explainer.get_explanation("ndvi", status, request.language)
-        
+
         return PredictionResponse(
             success=True,
             prediction={
@@ -61,38 +84,46 @@ async def analyze_ndvi(request: NDVIRequest):
                 "health_score": round(health_score, 2),
                 "status": status,
                 "status_label": status_label,
-                "interpretation": get_ndvi_interpretation(ndvi, request.language)
+                "interpretation": get_ndvi_interpretation(ndvi, lang),
             },
             confidence=0.90,
             explanation=explanation,
-            language=request.language
+            language=request.language,
         )
-        
+
     except Exception as e:
         logger.error(f"NDVI analysis error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="NDVI analysis error")
 
+
+# =========================================================
+# FALLBACK HEALTH SCORE
+# =========================================================
 def calculate_health_score_fallback(ndvi: float, request: NDVIRequest) -> float:
     """Fallback health score calculation"""
-    base_score = (ndvi + 1) / 2 * 100  # Convert -1 to 1 range to 0-100
-    
-    # Adjust for temperature
+    base_score = (ndvi + 1) / 2 * 100  # -1..1 → 0..100
+
+    # Temperature adjustment
     if 20 <= request.temperature <= 30:
         base_score *= 1.1
     elif request.temperature < 10 or request.temperature > 40:
         base_score *= 0.8
-    
-    # Adjust for rainfall
+
+    # Rainfall adjustment
     if 50 <= request.rainfall <= 200:
         base_score *= 1.05
     elif request.rainfall < 20:
         base_score *= 0.85
-    
+
     return min(100, max(0, base_score))
 
-def get_ndvi_interpretation(ndvi: float, language) -> str:
+
+# =========================================================
+# NDVI INTERPRETATION
+# =========================================================
+def get_ndvi_interpretation(ndvi: float, lang: str) -> str:
     """Get NDVI interpretation"""
-    if language.value == "en":
+    if lang == "en":
         if ndvi >= 0.6:
             return "Excellent crop health. Plants are thriving with good chlorophyll content."
         elif ndvi >= 0.3:

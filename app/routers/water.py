@@ -1,3 +1,6 @@
+"""
+Water Requirement Prediction Router - FINAL
+"""
 from fastapi import APIRouter, HTTPException
 import logging
 
@@ -15,13 +18,21 @@ logger = logging.getLogger(__name__)
 @router.post("/calculate", response_model=PredictionResponse)
 async def calculate_water_requirement(request: WaterRequest):
     try:
-        # Prepare ML features
+        # -------------------------------------------------
+        # 🌐 LANGUAGE SAFE HANDLING
+        # -------------------------------------------------
+        lang = request.language.value if hasattr(request.language, "value") else request.language
+
+        # -------------------------------------------------
+        # PREPARE FEATURES
+        # -------------------------------------------------
         X = prepare_features(request)
 
-        # SAFE prediction call
+        # -------------------------------------------------
+        # SAFE ML CALL
+        # -------------------------------------------------
         result = predict_water_requirement(X)
 
-        # Handle missing model case
         if isinstance(result, dict) and "error" in result:
             raise HTTPException(
                 status_code=503,
@@ -29,7 +40,6 @@ async def calculate_water_requirement(request: WaterRequest):
             )
 
         prediction = float(result[0])
-
         if prediction <= 0:
             raise ValueError("Invalid ML prediction")
 
@@ -63,8 +73,8 @@ async def calculate_water_requirement(request: WaterRequest):
         raise
 
     except Exception as e:
-        logger.error(f"ML prediction failed: {e}", exc_info=True)
+        logger.error(f"Water prediction error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="ML prediction failed"
+            detail="Water requirement prediction failed"
         )

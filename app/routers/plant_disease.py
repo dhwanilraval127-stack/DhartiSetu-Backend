@@ -1,14 +1,21 @@
 """
 Plant Disease Detection Router
-FINAL – ZERO-ERROR VERSION
+FINAL – ZERO-ERROR VERSION (TORCH SAFE)
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 import logging
-import torch
 import io
 import numpy as np
 from PIL import Image
+
+# -------------------------------------------------
+# SAFE TORCH IMPORT (CRITICAL FIX)
+# -------------------------------------------------
+try:
+    import torch
+except Exception:
+    torch = None
 
 from app.models.schemas import ImageUploadResponse, Language
 from app.models.loader import model_loader
@@ -18,8 +25,12 @@ from app.config import settings
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# =================================================
+# HELPERS
+# =================================================
 def is_healthy_label(raw_label: str) -> bool:
     return "healthy" in raw_label.lower()
+
 
 def get_health_condition(is_healthy: bool, confidence: float, language: Language):
     if is_healthy:
@@ -27,44 +38,75 @@ def get_health_condition(is_healthy: bool, confidence: float, language: Language
             "title": "Plant is Healthy" if language == Language.EN else "पौधा स्वस्थ है",
             "status": "Healthy",
             "status_hi": "स्वस्थ",
-            "severity": "none"
+            "severity": "none",
         }
 
     if confidence < 90:
         return {
-            "title": "Early Stage Disease Detected" if language == Language.EN else "बीमारी की शुरुआती अवस्था",
+            "title": "Early Stage Disease Detected"
+            if language == Language.EN
+            else "बीमारी की शुरुआती अवस्था",
             "status": "Early Stage",
             "status_hi": "शुरुआती अवस्था",
-            "severity": "low"
+            "severity": "low",
         }
 
     return {
-        "title": "Disease Detected" if language == Language.EN else "बीमारी पाई गई",
+        "title": "Disease Detected"
+        if language == Language.EN
+        else "बीमारी पाई गई",
         "status": "Diseased",
         "status_hi": "बीमार",
-        "severity": "high"
+        "severity": "high",
     }
 
+
+# =================================================
+# DETECTION ENDPOINT
+# =================================================
 @router.post("/detect", response_model=ImageUploadResponse)
 async def detect_plant_disease(
     file: UploadFile = File(...),
-    language: Language = Form(Language.EN)
+    language: Language = Form(Language.EN),
 ):
     try:
+        # -------------------------------------------------
+        # TORCH AVAILABILITY CHECK (IMPORTANT)
+        # -------------------------------------------------
+        if torch is None:
+            raise HTTPException(
+                status_code=503,
+                detail="ML inference engine not available",
+            )
+
+        # -------------------------------------------------
+        # FILE VALIDATION
+        # -------------------------------------------------
         if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
             raise HTTPException(status_code=400, detail="Invalid image type")
 
         image_bytes = await file.read()
 
+        # -------------------------------------------------
+        # LOAD MODEL & PROCESSOR
+        # -------------------------------------------------
         model = model_loader.get_model("plant_disease", "model")
         processor = model_loader.get_model("plant_disease", "processor")
 
         if model is None or processor is None:
-            raise HTTPException(status_code=503, detail="Plant disease model not loaded")
+            raise HTTPException(
+                status_code=503, detail="Plant disease model not loaded"
+            )
 
+        # -------------------------------------------------
+        # IMAGE PREPROCESSING
+        # -------------------------------------------------
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         inputs = processor(images=image, return_tensors="pt")
 
+        # -------------------------------------------------
+        # INFERENCE
+        # -------------------------------------------------
         with torch.no_grad():
             outputs = model(**inputs)
 
@@ -77,11 +119,13 @@ async def detect_plant_disease(
 
         health_info = get_health_condition(is_healthy, confidence, language)
 
-        # 🔥 THIS IS THE KEY FIX
+        # -------------------------------------------------
+        # EXPLANATION (SAFE SERIALIZATION)
+        # -------------------------------------------------
         explanation_data = explainer.get_explanation(
             "plant_disease",
             "healthy" if is_healthy else "disease",
-            language
+            language,
         )
 
         return ImageUploadResponse(
@@ -91,15 +135,19 @@ async def detect_plant_disease(
                 "status": health_info["status"],
                 "status_hi": health_info["status_hi"],
                 "severity": health_info["severity"],
-                "is_healthy": is_healthy
+                "is_healthy": is_healthy,
             },
             confidence=round(confidence, 2),
             explanation=explanation_data.model_dump(),  # ✅ SAFE
-            language=language
+            language=language,
         )
 
     except HTTPException:
         raise
+
     except Exception as e:
         logger.error("Plant disease detection error", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="Plant disease detection error",
+        )

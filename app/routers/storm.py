@@ -1,7 +1,7 @@
 """
-Storm Prediction Router - FIXED
+Storm Prediction Router - FINAL (LANGUAGE SAFE)
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 import numpy as np
 import logging
 
@@ -16,56 +16,67 @@ logger = logging.getLogger(__name__)
 async def predict_storm(request: StormRequest):
     """Predict storm risk"""
     try:
-        # Calculate fallback first
+        # -------------------------------------------------
+        # 🌐 LANGUAGE SAFE HANDLING (FIX)
+        # -------------------------------------------------
+        lang = request.language.value if hasattr(request.language, "value") else request.language
+
+        # -------------------------------------------------
+        # Always calculate fallback first
+        # -------------------------------------------------
         storm_probability = estimate_storm_risk_fallback(request)
-        
+
         model_data = model_loader.get_all("storm")
-        
+
         if model_data and "model" in model_data:
             try:
                 model = model_data["model"]
-                
-                # Core features
+
                 base_features = [
                     request.month,
                     request.wind_speed,
                     request.pressure,
                     request.humidity
                 ]
-                
-                expected_features = getattr(model, 'n_features_in_', len(base_features))
-                
+
+                expected_features = getattr(model, "n_features_in_", len(base_features))
+
                 if expected_features > len(base_features):
-                    additional = [0] * (expected_features - len(base_features))
-                    features = np.array([base_features + additional])
+                    features = np.array([
+                        base_features + [0] * (expected_features - len(base_features))
+                    ])
                 else:
                     features = np.array([base_features[:expected_features]])
-                
-                if hasattr(model, 'predict_proba'):
+
+                if hasattr(model, "predict_proba"):
                     probas = model.predict_proba(features)[0]
-                    storm_probability = float(probas[1]) if len(probas) > 1 else float(probas[0])
+                    storm_probability = float(
+                        probas[1] if len(probas) > 1 else probas[0]
+                    )
                 else:
-                    prediction = model.predict(features)[0]
-                    storm_probability = float(prediction)
-                    
+                    storm_probability = float(model.predict(features)[0])
+
             except Exception as e:
-                logger.warning(f"Storm model failed: {e}")
+                logger.warning(f"Storm model failed, using fallback: {e}")
                 storm_probability = estimate_storm_risk_fallback(request)
-        
-        storm_probability = max(0, min(1, storm_probability))
-        
+
+        storm_probability = max(0.0, min(1.0, storm_probability))
+
+        # -------------------------------------------------
+        # RISK CLASSIFICATION (LANG FIX)
+        # -------------------------------------------------
         if storm_probability >= 0.7:
             risk_level = "high"
-            risk_label = "High Storm Risk" if request.language.value == "en" else "उच्च तूफान जोखिम"
+            risk_label = "High Storm Risk" if lang == "en" else "उच्च तूफान जोखिम"
         elif storm_probability >= 0.4:
             risk_level = "moderate"
-            risk_label = "Moderate Storm Risk" if request.language.value == "en" else "मध्यम तूफान जोखिम"
+            risk_label = "Moderate Storm Risk" if lang == "en" else "मध्यम तूफान जोखिम"
         else:
             risk_level = "low"
-            risk_label = "Low Storm Risk" if request.language.value == "en" else "कम तूफान जोखिम"
-        
+            risk_label = "Low Storm Risk" if lang == "en" else "कम तूफान जोखिम"
+
         explanation = explainer.get_explanation("storm", risk_level, request.language)
-        
+
         return PredictionResponse(
             success=True,
             prediction={
@@ -83,15 +94,21 @@ async def predict_storm(request: StormRequest):
             explanation=explanation,
             language=request.language
         )
-        
+
     except Exception as e:
         logger.error(f"Storm prediction error: {e}")
+
+        # -------------------------------------------------
+        # FALLBACK RESPONSE (LANG FIX)
+        # -------------------------------------------------
+        lang = request.language.value if hasattr(request.language, "value") else request.language
+
         return PredictionResponse(
             success=True,
             prediction={
                 "storm_probability": 20.0,
                 "risk_level": "low",
-                "risk_label": "Low Storm Risk",
+                "risk_label": "Low Storm Risk" if lang == "en" else "कम तूफान जोखिम",
                 "conditions": {},
                 "location": request.state
             },
@@ -100,30 +117,34 @@ async def predict_storm(request: StormRequest):
             language=request.language
         )
 
+
+# ==================================================
+# FALLBACK LOGIC
+# ==================================================
 def estimate_storm_risk_fallback(request: StormRequest) -> float:
     """Fallback storm risk estimation"""
     risk = 0.0
-    
+
     if request.wind_speed > 100:
         risk += 0.4
     elif request.wind_speed > 60:
         risk += 0.25
     elif request.wind_speed > 40:
         risk += 0.15
-    
+
     if request.pressure < 990:
         risk += 0.35
     elif request.pressure < 1000:
         risk += 0.2
     elif request.pressure < 1010:
         risk += 0.1
-    
+
     if request.humidity > 85:
         risk += 0.15
     elif request.humidity > 70:
         risk += 0.1
-    
+
     if request.month in [4, 5, 10, 11]:
         risk *= 1.3
-    
+
     return min(1.0, risk)

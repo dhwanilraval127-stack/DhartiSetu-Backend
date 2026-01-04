@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 async def predict_price(request: PriceRequest):
     try:
         # --------------------------------------------------
+        # 🌐 LANGUAGE SAFE HANDLING (TINY FIX)
+        # --------------------------------------------------
+        lang = request.language.value if hasattr(request.language, "value") else "en"
+
+        # --------------------------------------------------
         # 1️⃣ Try loading trained model
         # --------------------------------------------------
         model_data = model_loader.get_all("price")
@@ -30,7 +35,6 @@ async def predict_price(request: PriceRequest):
             model = model_data["model"]
             encoders = model_data.get("encoders", {})
 
-            # Encode categorical features safely
             crop_encoded = 0
             state_encoded = 0
 
@@ -52,8 +56,8 @@ async def predict_price(request: PriceRequest):
                 state_encoded,
                 request.month,
                 request.year,
-                0,      # placeholder (future use)
-                0       # placeholder (future use)
+                0,  # placeholder
+                0   # placeholder
             ]])
 
             predicted_price = float(model.predict(features)[0])
@@ -65,7 +69,7 @@ async def predict_price(request: PriceRequest):
             predicted_price = estimate_price_fallback(request)
 
         # --------------------------------------------------
-        # 3️⃣ FORCE crop differentiation (CRITICAL FIX)
+        # 3️⃣ FORCE crop differentiation
         # --------------------------------------------------
         CROP_MULTIPLIER = {
             "rice": 1.0,
@@ -81,17 +85,16 @@ async def predict_price(request: PriceRequest):
         }
 
         crop_key = request.crop.lower().strip()
-        multiplier = CROP_MULTIPLIER.get(crop_key, 1.0)
-        predicted_price *= multiplier
+        predicted_price *= CROP_MULTIPLIER.get(crop_key, 1.0)
 
         # --------------------------------------------------
-        # 4️⃣ Trend logic
+        # 4️⃣ Trend logic (LANG FIX APPLIED)
         # --------------------------------------------------
         trend = "stable"
-        trend_label = "Stable" if request.language.value == "en" else "स्थिर"
+        trend_label = "Stable" if lang == "en" else "स्थिर"
 
         # --------------------------------------------------
-        # 5️⃣ Explanation (language safe)
+        # 5️⃣ Explanation
         # --------------------------------------------------
         explanation = explainer.get_explanation(
             model_type="price",
@@ -122,7 +125,6 @@ async def predict_price(request: PriceRequest):
     except Exception as e:
         logger.error(f"Price prediction failed: {e}")
 
-        # 🚑 Hard fallback (never crashes)
         predicted_price = estimate_price_fallback(request)
 
         return PredictionResponse(
@@ -134,7 +136,9 @@ async def predict_price(request: PriceRequest):
                 "month": request.month,
                 "year": request.year,
                 "trend": "stable",
-                "trend_label": "Stable",
+                "trend_label": "Stable" if (
+                    hasattr(request.language, "value") and request.language.value == "en"
+                ) else "स्थिर",
                 "currency": "INR"
             },
             confidence=0.65,
@@ -146,7 +150,7 @@ async def predict_price(request: PriceRequest):
 
 
 # ==========================================================
-# FALLBACK PRICE LOGIC (SMART & REALISTIC)
+# FALLBACK PRICE LOGIC
 # ==========================================================
 def estimate_price_fallback(request: PriceRequest) -> float:
     base_prices = {

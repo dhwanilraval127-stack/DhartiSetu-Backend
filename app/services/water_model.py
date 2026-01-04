@@ -1,73 +1,65 @@
-from pathlib import Path
-import joblib
+"""
+Water Requirement ML Model Service - IMPORT SAFE
+"""
+import logging
 import numpy as np
+import joblib
+from pathlib import Path
 
-# --------------------------------------------------
-# Absolute path to model (works locally & on Render)
-# --------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parents[2]  # backend/
-MODEL_PATH = BASE_DIR / "ml_models" / "water" / "water_rf.pkl"
+logger = logging.getLogger(__name__)
 
-# --------------------------------------------------
-# Safe model loading (DO NOT CRASH SERVER)
-# --------------------------------------------------
+# -------------------------------------------------
+# MODEL PATH
+# -------------------------------------------------
+MODEL_PATH = Path("app/models/water/water_model.pkl")
+
+# -------------------------------------------------
+# SAFE MODEL LOAD (NEVER RAISE AT IMPORT)
+# -------------------------------------------------
 model = None
 
-if MODEL_PATH.exists():
-    try:
+try:
+    if MODEL_PATH.exists():
         model = joblib.load(MODEL_PATH)
-        print(f"[INFO] Water model loaded from {MODEL_PATH}")
-    except Exception as e:
-        print(f"[ERROR] Failed to load water model: {e}")
-else:
-    print(f"[WARN] Water model not found at {MODEL_PATH}. API will run without it.")
+        logger.info("✅ Water ML model loaded successfully")
+    else:
+        logger.warning("⚠️ Water ML model file not found")
+except Exception as e:
+    logger.error(f"❌ Failed to load water ML model: {e}")
+    model = None
 
-# --------------------------------------------------
-# Feature preparation (MUST match training order)
-# --------------------------------------------------
-def prepare_features(request):
+
+# -------------------------------------------------
+# FEATURE PREPARATION
+# -------------------------------------------------
+def prepare_features(request) -> np.ndarray:
     """
-    Converts API request into model-ready feature vector
-    MUST match training column order
+    Convert WaterRequest → ML feature array
+    MUST match training order
     """
-
-    features = np.array([[
-
-        # numerical
+    return np.array([[
         request.temperature,
         request.humidity,
-        request.area_hectares,
-
-        # crop (one-hot)
-        1 if request.crop.lower() == "rice" else 0,
-        1 if request.crop.lower() == "wheat" else 0,
-        1 if request.crop.lower() == "maize" else 0,
-
-        # soil type (one-hot)
-        1 if request.soil_type.lower() == "loamy" else 0,
-        1 if request.soil_type.lower() == "sandy" else 0,
-        1 if request.soil_type.lower() == "clay" else 0,
-
-        # growth stage (one-hot)
-        1 if request.growth_stage.lower() == "seedling" else 0,
-        1 if request.growth_stage.lower() == "vegetative" else 0,
-        1 if request.growth_stage.lower() == "flowering" else 0,
-        1 if request.growth_stage.lower() == "maturity" else 0
+        request.rainfall,
+        request.soil_moisture,
+        request.crop_coefficient,
+        request.growth_stage_index
     ]])
 
-    return features
 
-# --------------------------------------------------
-# Prediction wrapper (SAFE)
-# --------------------------------------------------
-def predict_water_requirement(features):
+# -------------------------------------------------
+# SAFE PREDICTION FUNCTION
+# -------------------------------------------------
+def predict_water_requirement(X: np.ndarray):
     """
-    Returns prediction or clean error if model not loaded
+    Predict water requirement safely.
+    NEVER raises if model missing.
     """
     if model is None:
-        return {
-            "error": "Water model is not available on this server"
-        }
+        return {"error": "model_not_loaded"}
 
-    prediction = model.predict(features)
-    return prediction.tolist()
+    try:
+        return model.predict(X)
+    except Exception as e:
+        logger.error(f"Water ML inference failed: {e}")
+        return {"error": "prediction_failed"}

@@ -1,5 +1,6 @@
 # app/models/loader.py
 
+import os
 import joblib
 import logging
 from typing import Dict, Any, Optional
@@ -11,11 +12,11 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 🔗 Hugging Face repo where models are stored
+# 🔗 Hugging Face repo where all ML models are stored
 HF_REPO_ID = "crimson1232/dhartisetu-ml-models"
 
-# 📦 Local cache dir (safe on Koyeb)
-HF_CACHE_DIR = "hf_models"
+# ✅ Render / Railway / Koyeb SAFE cache directory
+HF_CACHE_DIR = os.getenv("HF_HOME", "/tmp/hf_models")
 
 
 class ModelLoader:
@@ -53,7 +54,7 @@ class ModelLoader:
         return tf.keras.models.load_model(file_path, compile=False)
 
     # --------------------------------------------------
-    # LOAD ALL MODELS (ONCE)
+    # LOAD ALL MODELS (ONCE AT STARTUP)
     # --------------------------------------------------
     def load_all_models(self) -> None:
         if self._loaded:
@@ -61,28 +62,24 @@ class ModelLoader:
             return
 
         logger.info("🚀 Loading ML models from Hugging Face...")
+        logger.info(f"📁 HF cache directory: {HF_CACHE_DIR}")
 
         for model_name, components in settings.MODEL_PATHS.items():
             self._models[model_name] = {}
 
             for component, hf_path in components.items():
                 try:
-                    # ==========================================
-                    # ✅ TensorFlow / Keras Models
-                    # ==========================================
                     if hf_path.endswith((".h5", ".keras")):
                         logger.info(f"📦 Loading Keras model: {hf_path}")
                         self._models[model_name][component] = self._load_keras(hf_path)
 
-                    # ==========================================
-                    # ✅ Pickle / Joblib Models
-                    # ==========================================
                     elif hf_path.endswith(".pkl"):
                         logger.info(f"📦 Loading Pickle model: {hf_path}")
                         self._models[model_name][component] = self._load_pickle(hf_path)
 
                     else:
                         logger.warning(f"⚠️ Unsupported model type: {hf_path}")
+                        continue
 
                     logger.info(f"✅ Loaded {model_name}/{component}")
 
@@ -92,11 +89,20 @@ class ModelLoader:
                         exc_info=True
                     )
 
+            if not self._models[model_name]:
+                logger.warning(
+                    f"⚠️ No components loaded for model group '{model_name}'. "
+                    f"Fallback logic will be used."
+                )
+
+        if not self._models:
+            raise RuntimeError("❌ No ML models were loaded at all. Startup aborted.")
+
         self._loaded = True
-        logger.info("🎉 All models loaded successfully from Hugging Face")
+        logger.info("🎉 Model loading process completed")
 
     # --------------------------------------------------
-    # GETTERS
+    # GETTERS (SAFE)
     # --------------------------------------------------
     def get_model(self, model_name: str, component: str = "model") -> Optional[Any]:
         return self._models.get(model_name, {}).get(component)
@@ -105,5 +111,5 @@ class ModelLoader:
         return self._models.get(model_name)
 
 
-# ✅ Singleton instance (USED BY main.py)
+# ✅ Singleton instance
 model_loader = ModelLoader()

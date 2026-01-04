@@ -1,5 +1,5 @@
 """
-Soil Health Assessment Router - FULLY DEBUGGED
+Soil Health Assessment Router - FINAL (PRODUCTION SAFE)
 """
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 import numpy as np
@@ -15,7 +15,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # ======================================================
-# 1️⃣ MANUAL SOIL HEALTH (LAB VALUES)
+# 1️⃣ SOIL HEALTH FROM LAB VALUES
 # ======================================================
 @router.post("/assess", response_model=PredictionResponse)
 async def assess_soil_health(request: SoilHealthRequest):
@@ -41,13 +41,13 @@ async def assess_soil_health(request: SoilHealthRequest):
             language=request.language
         )
 
-    except Exception as e:
+    except Exception:
         logger.error("Soil health assess error", exc_info=True)
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, "Soil health assessment failed")
 
 
 # ======================================================
-# 2️⃣ SOIL IMAGE → SOIL HEALTH (NEW FEATURE)
+# 2️⃣ SOIL HEALTH FROM IMAGE (CNN)
 # ======================================================
 @router.post("/assess-from-image", response_model=PredictionResponse)
 async def assess_soil_health_from_image(
@@ -55,9 +55,10 @@ async def assess_soil_health_from_image(
     language: Language = Form(Language.EN)
 ):
     try:
-        # -------------------------
-        # Load soil CNN
-        # -------------------------
+        # ---------- Image type validation ----------
+        if file.content_type not in ["image/jpeg", "image/png", "image/jpg"]:
+            raise HTTPException(400, "Invalid image type")
+
         soil_model = model_loader.get_model("soil_cnn", "model")
         if soil_model is None:
             raise HTTPException(503, "Soil CNN model not loaded")
@@ -65,9 +66,6 @@ async def assess_soil_health_from_image(
         image_bytes = await file.read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-        # -------------------------
-        # Preprocess
-        # -------------------------
         image = image.resize((224, 224))
         img_array = np.array(image) / 255.0
         img_array = np.expand_dims(img_array, axis=0)
@@ -79,9 +77,6 @@ async def assess_soil_health_from_image(
         soil_classes = ["black", "red", "alluvial", "sandy"]
         soil_type = soil_classes[idx]
 
-        # -------------------------
-        # Infer soil health
-        # -------------------------
         health_status, nutrient_analysis = infer_soil_health_from_type(
             soil_type,
             language
@@ -107,25 +102,26 @@ async def assess_soil_health_from_image(
             language=language
         )
 
-    except Exception as e:
+    except Exception:
         logger.error("Soil health image error", exc_info=True)
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, "Soil health assessment failed")
 
 
 # ======================================================
 # 🔧 HELPERS
 # ======================================================
 def get_health_label(status: str, language: Language) -> str:
+    lang = language.value if hasattr(language, "value") else language
     labels = {
         "good": {"en": "Good Health", "hi": "अच्छा स्वास्थ्य"},
         "moderate": {"en": "Moderate Health", "hi": "मध्यम स्वास्थ्य"},
         "poor": {"en": "Poor Health", "hi": "खराब स्वास्थ्य"}
     }
-    return labels.get(status, labels["moderate"])[language.value]
+    return labels.get(status, labels["moderate"])[lang]
 
 
 def infer_soil_health_from_type(soil_type: str, language: Language):
-    lang = language.value
+    lang = language.value if hasattr(language, "value") else language
 
     if soil_type == "black":
         return "good", {
@@ -191,9 +187,9 @@ def assess_soil_fallback(request: SoilHealthRequest):
 
 
 def analyze_nutrients(request: SoilHealthRequest, language: Language):
-    lang = language.value
+    lang = language.value if hasattr(language, "value") else language
 
-    def check(val, low, high, en, hi):
+    def check(val, low, high):
         if val < low:
             return label("Low", "कम", lang)
         if val > high:
@@ -201,9 +197,9 @@ def analyze_nutrients(request: SoilHealthRequest, language: Language):
         return label("Optimal", "इष्टतम", lang)
 
     return {
-        "nitrogen": check(request.nitrogen, 250, 500, "Nitrogen", "नाइट्रोजन"),
-        "phosphorus": check(request.phosphorus, 25, 50, "Phosphorus", "फास्फोरस"),
-        "potassium": check(request.potassium, 200, 300, "Potassium", "पोटेशियम"),
-        "ph": check(request.ph, 6.0, 7.5, "pH", "pH"),
-        "organic_carbon": check(request.organic_carbon, 0.5, 2.0, "Organic Carbon", "जैविक कार्बन")
+        "nitrogen": check(request.nitrogen, 250, 500),
+        "phosphorus": check(request.phosphorus, 25, 50),
+        "potassium": check(request.potassium, 200, 300),
+        "ph": check(request.ph, 6.0, 7.5),
+        "organic_carbon": check(request.organic_carbon, 0.5, 2.0)
     }

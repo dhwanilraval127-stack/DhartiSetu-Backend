@@ -1,11 +1,12 @@
 """
 DhartiSetu - Main FastAPI Application
-Production-ready merged version
+Production-ready version (Render / Railway / Koyeb SAFE)
 """
 
 import os
 import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,16 +22,17 @@ from app.routers import (
 )
 
 # --------------------------------------------------
-# Logging
+# Logging Configuration
 # --------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 )
 logger = logging.getLogger("dhartisetu")
 
+
 # --------------------------------------------------
-# Utilities
+# Utility: Memory Usage
 # --------------------------------------------------
 def get_memory_usage():
     try:
@@ -40,38 +42,40 @@ def get_memory_usage():
     except Exception:
         return "N/A"
 
+
 # --------------------------------------------------
 # Lifespan (Startup / Shutdown)
 # --------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # ---------- STARTUP ----------
     logger.info("🚀 DhartiSetu API starting...")
     logger.info(f"📊 Memory usage (startup): {get_memory_usage()}")
 
     try:
         model_loader.load_all_models()
-        logger.info("✅ All ML models loaded successfully")
-    except Exception as e:
-        logger.error("❌ Model loading failed", exc_info=True)
+        logger.info("✅ ML model loading completed")
+    except Exception:
+        logger.critical("❌ ML model loading FAILED", exc_info=True)
 
-    # Debug loaded models
+    # Debug: list loaded models
     for model_group, components in model_loader._models.items():
         logger.info(f"📦 Model group: {model_group}")
         for key, obj in components.items():
             logger.info(f"   └─ {key}: {type(obj)}")
 
-    # Explicit soil model check
+    # Explicit soil CNN check
     if model_loader.get_model("soil_cnn", "model") is None:
         logger.error("❌ Soil CNN model NOT loaded")
     else:
-        logger.info("🌱 Soil CNN model loaded")
+        logger.info("🌱 Soil CNN model loaded successfully")
 
     yield
 
-    # Shutdown
+    # ---------- SHUTDOWN ----------
     logger.info("🛑 DhartiSetu API shutting down...")
     logger.info(f"📊 Memory usage (shutdown): {get_memory_usage()}")
+
 
 # --------------------------------------------------
 # FastAPI App
@@ -138,7 +142,6 @@ async def health():
 
 @app.get(f"{API}/warmup")
 async def warmup():
-    """Optional endpoint to trigger early model loading"""
     return {
         "status": "warmed",
         "memory": get_memory_usage()
@@ -160,7 +163,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # --------------------------------------------------
-# Local Run
+# Local Development Run
 # --------------------------------------------------
 if __name__ == "__main__":
     import uvicorn

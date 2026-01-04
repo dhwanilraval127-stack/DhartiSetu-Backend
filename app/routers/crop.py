@@ -124,13 +124,13 @@ async def recommend_crop_from_soil_image(
         if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
             raise HTTPException(400, "Invalid image type")
 
-        image_bytes = await file.read()
         soil_model = model_loader.get_model("soil_cnn", "model")
-
         if soil_model is None:
             raise HTTPException(503, "Soil model not available")
 
+        image_bytes = await file.read()
         img = image_processor.load_and_preprocess(image_bytes, (224, 224))
+
         preds = soil_model.predict(img, verbose=0)[0]
         soil_type = settings.SOIL_CLASSES[int(np.argmax(preds))]
 
@@ -153,6 +153,8 @@ async def recommend_crop_from_soil_image(
         response.prediction["soil_type"] = soil_type
         return response
 
+    except HTTPException:
+        raise
     except Exception:
         logger.error("Soil image crop recommendation failed", exc_info=True)
         raise HTTPException(500, "Soil image processing failed")
